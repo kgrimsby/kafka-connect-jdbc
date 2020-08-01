@@ -21,6 +21,7 @@ import org.apache.kafka.connect.data.Decimal;
 import org.apache.kafka.connect.data.SchemaBuilder;
 import org.apache.kafka.connect.data.Time;
 import org.apache.kafka.connect.data.Timestamp;
+import org.apache.kafka.connect.data.SchemaBuilder;
 
 import java.sql.ResultSet;
 import java.sql.SQLException;
@@ -383,4 +384,33 @@ public class SqlServerDatabaseDialect extends GenericDatabaseDialect {
                 .replaceAll("(?i)(;keyStoreSecret=)[^;]*", "$1****")
                 .replaceAll("(?i)(;gsscredential=)[^;]*", "$1****");
   }
+
+    @Override
+    public String addFieldToSchema(
+				   ColumnDefinition columnDefn,
+				   SchemaBuilder builder
+				   )
+    {
+	// Add the PostgreSQL-specific types first
+	final String fieldName = fieldNameFor(columnDefn);
+	//log.info("Checking type for {} {} {}", fieldName, columnDefn.typeName(), columnDefn.classNameForType());
+
+	builder.parameter("org_col", columnDefn.typeName());
+
+	switch (columnDefn.typeName()) {
+	case "uniqueidentifier": {
+	    builder.field(fieldName, SchemaBuilder.string().optional().name("UUID").parameter("uuid", "yes").version(1).build());
+	    return fieldName;
+	}
+	}
+
+	switch (columnDefn.type()) {
+	case Types.OTHER: {
+	    log.info("Found other type: {}", columnDefn.typeName());
+	    break;
+	}
+	}
+
+	return super.addFieldToSchema(columnDefn, builder);
+    }
 }

@@ -31,6 +31,8 @@ import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Types;
 import java.util.Collection;
+import java.util.UUID;
+import java.util.Map;
 
 import io.confluent.connect.jdbc.dialect.DatabaseDialectProvider.SubprotocolBasedProvider;
 import io.confluent.connect.jdbc.sink.metadata.SinkRecordField;
@@ -130,6 +132,19 @@ public class PostgreSqlDatabaseDialect extends GenericDatabaseDialect {
           );
           return fieldName;
         }
+
+	if (UUID.class.getName().equals(columnDefn.classNameForType())) {
+	    SchemaBuilder fieldBuilder = SchemaBuilder.string().version(1).name("UUID").parameter("uuid", "yes");
+	    
+	    if (columnDefn.isOptional()) {
+		fieldBuilder.optional();
+	    }
+		
+	    builder.field(fieldName, fieldBuilder.build());
+
+	    return fieldName;
+        }
+	
         break;
       }
       default:
@@ -167,6 +182,11 @@ public class PostgreSqlDatabaseDialect extends GenericDatabaseDialect {
         if (isJsonType(columnDefn)) {
           return rs -> rs.getString(col);
         }
+
+	if (UUID.class.getName().equals(columnDefn.classNameForType())) {
+	    return rs -> rs.getString(col);
+	}
+	
         break;
       }
       default:
@@ -261,19 +281,59 @@ public class PostgreSqlDatabaseDialect extends GenericDatabaseDialect {
     return builder.toString();
   }
 
-  @Override
-  protected void formatColumnValue(
-      ExpressionBuilder builder,
-      String schemaName,
-      Map<String, String> schemaParameters,
-      Schema.Type type,
-      Object value
-  ) {
-    if (schemaName == null && Type.BOOLEAN.equals(type)) {
-      builder.append((Boolean) value ? "TRUE" : "FALSE");
-    } else {
-      super.formatColumnValue(builder, schemaName, schemaParameters, type, value);
-    }
-  }
+    @Override
+    protected void writeColumnSpec(
+				   ExpressionBuilder builder,
+				   SinkRecordField f
+				   )
+    {
 
+	log.info("Writing column {}", f.name());
+	if (f.schemaParameters() != null && f.schemaParameters().containsKey("uuid")) {
+	    log.info("Found params: {}", f.schemaParameters().toString());
+	    builder.appendColumnName(f.name());
+	    builder.append(" ");
+	    //String sqlType = getSqlType(f);
+	    builder.append("UUID");
+	    builder.append(" NULL");
+	    return;
+
+	}
+	super.writeColumnSpec(builder, f);
+    }
+
+    @Override
+    protected void formatColumnValue(
+				     ExpressionBuilder builder,
+				     String schemaName,
+				     Map<String, String> schemaParameters,
+				     Schema.Type type,
+				     Object value
+				     ) {
+	if (!schemaParameters.isEmpty() && schemaParameters.containsKey("uuid")) {
+	    log.info("Writing UUID field!");
+	    builder.append(value);
+	    return;
+	}
+
+	super.formatColumnValue(builder, schemaName, schemaParameters, type, value);
+    }
+
+    @Override
+    protected boolean maybeBindLogical(
+				       PreparedStatement statement,
+				       int index,
+				       Schema schema,
+				       Object value
+				       ) throws SQLException {
+	//log.info("Binding: {}", schema.name());
+
+	if (schema.parameters() != null && !schema.parameters().isEmpty() && schema.parameters().containsKey("uuid")) {
+	    //log.info("Found uuid for index {}", index);
+	    statement.setObject(index, java.util.UUID.fromString((String)value));
+	    return true;
+	}
+
+	return super.maybeBindLogical(statement, index, schema, value);
+    }
 }
